@@ -1,6 +1,6 @@
 # Suggested Commit Plan
 
-1. `chore: scaffold agent-notify package and project metadata`
+1. `chore: scaffold agent-notifier package and project metadata`
    - Create package layout, `pyproject.toml`, and base modules.
 2. `feat(run): implement wrapped command execution with macOS notifications`
    - Add `ProcessRunner`, output capture tail, time formatting, and `run` CLI command.
@@ -8,7 +8,7 @@
    - Add tests for success/failure exit codes, duration formatting, tail behavior, and notifier payload.
 4. `feat(watch): add PID watcher mode and notification wiring`
    - Add `ProcessWatcher` and `watch` CLI command.
-5. `feat(windows): add Windows desktop notifier and test-notify command`
+5. `feat(windows): add Windows desktop notifier and test-notifier command`
    - Add PowerShell/BurntToast implementation with fallback.
 6. `docs: add README, OSS governance docs, examples, and changelog`
    - Add usage docs, contributing, code of conduct, license, and release notes.

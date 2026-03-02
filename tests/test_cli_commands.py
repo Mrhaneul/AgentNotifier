@@ -4,7 +4,8 @@ import json
 
 from click.testing import CliRunner
 
-from agentnotify.cli import app
+from agentnotifier.cli import app
+from agentnotifier.notifier.base import NotificationError, NotificationLevel, Notifier
 
 
 def test_emit_command_auto_detects_tool_name() -> None:
@@ -35,6 +36,30 @@ def test_gemini_hook_command_after_agent_notifies_console() -> None:
         "prompt": "Please summarize what changed in the repository today.",
         "prompt_response": "Completed summary with key changed files and outcomes.",
         "session_id": "session-123",
+    }
+    result = runner.invoke(
+        app,
+        [
+            "gemini-hook",
+            "--channel",
+            "console",
+        ],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0
+    assert "[gemini] Done" in result.output
+    assert "Event: AfterAgent" in result.output
+    assert "Prompt:" in result.output
+    assert "Response:" in result.output
+
+
+def test_gemini_hook_command_accepts_camel_case_payload_keys() -> None:
+    runner = CliRunner()
+    payload = {
+        "eventName": "AfterAgent",
+        "userPrompt": "Please summarize what changed in the repository today.",
+        "promptResponse": "Completed summary with key changed files and outcomes.",
+        "sessionId": "session-123",
     }
     result = runner.invoke(
         app,
@@ -96,7 +121,7 @@ def test_gemini_hook_command_skips_when_focused(monkeypatch) -> None:  # type: i
         "session_id": "session-123",
     }
     monkeypatch.setattr(
-        "agentnotify.cli._is_user_focused_on_terminal",
+        "agentnotifier.cli._is_user_focused_on_terminal",
         lambda *, verbose: True,
     )
     result = runner.invoke(
@@ -127,7 +152,7 @@ def test_gemini_hook_command_can_play_chime(monkeypatch) -> None:  # type: ignor
         del verbose
         calls.append(chime)
 
-    monkeypatch.setattr("agentnotify.cli._play_chime", fake_play)
+    monkeypatch.setattr("agentnotifier.cli._play_chime", fake_play)
     result = runner.invoke(
         app,
         [
@@ -141,6 +166,45 @@ def test_gemini_hook_command_can_play_chime(monkeypatch) -> None:  # type: ignor
     )
     assert result.exit_code == 0
     assert calls == ["ping"]
+
+
+def test_gemini_hook_command_warns_when_desktop_fails_in_both_mode(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    runner = CliRunner()
+    payload = {
+        "hook_event_name": "AfterAgent",
+        "prompt": "run tests",
+        "prompt_response": "all green",
+        "session_id": "session-123",
+    }
+
+    class FailingDesktopNotifier(Notifier):
+        def notifier(  # type: ignore[override]
+            self,
+            title: str,
+            message: str,
+            level: NotificationLevel = NotificationLevel.INFO,
+            metadata: dict[str, object] | None = None,
+        ) -> None:
+            del title, message, level, metadata
+            raise NotificationError("desktop backend exploded")
+
+    monkeypatch.setattr(
+        "agentnotifier.cli._build_desktop_notifier",
+        lambda: FailingDesktopNotifier(),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "gemini-hook",
+            "--channel",
+            "both",
+            "--verbose",
+        ],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0
+    assert "[gemini] Done" in result.output
+    assert "Desktop notification failed while console delivery succeeded" in result.output
 
 
 def test_claude_hook_command_stop_notifies_console() -> None:

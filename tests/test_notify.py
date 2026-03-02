@@ -1,148 +1,211 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from agentnotify.core.notifications import notify_run_completion, notify_watch_completion
-from agentnotify.core.result import RunResult, WatchResult
-from agentnotify.notify.base import (
+from agentnotifier.notifier.base import (
     CompositeNotifier,
+    NotificationError,
     NotificationLevel,
     Notifier,
     NotifierUnavailable,
 )
-from agentnotify.notify.macos import MacOSNotifier
-from agentnotify.notify.null import NullNotifier
-from agentnotify.notify.windows import WindowsNotifier
+from agentnotifier.notifier.linux import LinuxNotifier
+from agentnotifier.notifier.macos import MacOSNotifier
+from agentnotifier.notifier.windows import WindowsNotifier
 
 
-def test_notifier_called_with_expected_fields() -> None:
-    notifier = NullNotifier()
-    result = RunResult(
-        command=["codex", "run"],
-        exit_code=0,
-        duration_seconds=12.5,
-        output_tail=["step 1", "step 2"],
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
-        tool_name="codex",
+def _completed(*, returncode: int, stderr: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        args=["cmd"],
+        returncode=returncode,
+        stdout="",
+        stderr=stderr,
     )
 
-    title, body, level = notify_run_completion(
-        notifier,
-        result,
-        tool_name="codex",
-        title_override=None,
-        default_tool_name="Agent",
-    )
 
-    assert title == "[codex] Done"
-    assert "Duration:" in body
-    assert "Exit code: 0" in body
-    assert level == NotificationLevel.SUCCESS
+def test_macos_notifier_prefers_terminal_notifier(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[list[str]] = []
 
-    assert len(notifier.notifications) == 1
-    sent = notifier.notifications[0]
-    assert sent.title == "[codex] Done"
-    assert sent.level == NotificationLevel.SUCCESS
-    assert sent.metadata is not None
-    assert sent.metadata["exit_code"] == 0
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "terminal-notifier": "/opt/homebrew/bin/terminal-notifier",
+            "osascript": "/usr/bin/osascript",
+        }
+        return mapping.get(name)
 
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(args)
+        return _completed(returncode=0)
 
-def test_watch_notification_with_unknown_exit_is_not_marked_failed() -> None:
-    notifier = NullNotifier()
-    result = WatchResult(
-        pid=12345,
-        duration_seconds=4.2,
-        exit_code=None,
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
-        already_exited=False,
-    )
-
-    title, _, level = notify_watch_completion(
-        notifier,
-        result,
-        tool_name="watcher",
-        title_override=None,
-        default_tool_name="Agent",
-    )
-
-    assert title == "[watcher] Done"
-    assert level == NotificationLevel.INFO
+    monkeypatch.setattr("agentnotifier.notifier.macos.shutil.which", fake_which)
+    notifier = MacOSNotifier(runner=fake_runner)
+    notifier.notifier("Title", "Message", NotificationLevel.INFO)
+    assert calls == [[
+        "/opt/homebrew/bin/terminal-notifier",
+        "-title",
+        "Title",
+        "-message",
+        "Message",
+    ]]
 
 
-def test_macos_notifier_raises_when_osascript_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agentnotify.notify.macos.shutil.which", lambda _: None)
+def test_macos_notifier_falls_back_to_osascript(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[list[str]] = []
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "terminal-notifier": "/opt/homebrew/bin/terminal-notifier",
+            "osascript": "/usr/bin/osascript",
+        }
+        return mapping.get(name)
+
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(args)
+        if args[0].endswith("terminal-notifier"):
+            return _completed(returncode=1, stderr="tn failed")
+        return _completed(returncode=0)
+
+    monkeypatch.setattr("agentnotifier.notifier.macos.shutil.which", fake_which)
+    notifier = MacOSNotifier(runner=fake_runner)
+    notifier.notifier("Title", "Message", NotificationLevel.INFO)
+    assert len(calls) == 2
+    assert calls[0][0].endswith("terminal-notifier")
+    assert calls[1][0] == "osascript"
+
+
+def test_macos_osascript_fallback_flattens_newlines(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[list[str]] = []
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "terminal-notifier": "/opt/homebrew/bin/terminal-notifier",
+            "osascript": "/usr/bin/osascript",
+        }
+        return mapping.get(name)
+
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(args)
+        if args[0].endswith("terminal-notifier"):
+            return _completed(returncode=1, stderr="tn failed")
+        return _completed(returncode=0)
+
+    monkeypatch.setattr("agentnotifier.notifier.macos.shutil.which", fake_which)
+    notifier = MacOSNotifier(runner=fake_runner)
+    notifier.notifier("Title", "line1\nline2", NotificationLevel.INFO)
+
+    assert len(calls) == 2
+    assert calls[1][0] == "osascript"
+    assert "line1 line2" in calls[1][2]
+    assert "\n" not in calls[1][2]
+
+
+def test_macos_notifier_requires_backend(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("agentnotifier.notifier.macos.shutil.which", lambda _: None)
     notifier = MacOSNotifier()
-
     with pytest.raises(NotifierUnavailable):
-        notifier.notify("Title", "Message")
+        notifier.notifier("Title", "Message")
 
 
-def test_windows_notifier_uses_powershell_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agentnotify.notify.windows.platform.system", lambda: "Windows")
+def test_windows_notifier_rejects_non_windows(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("agentnotifier.notifier.windows.platform.system", lambda: "Darwin")
+    notifier = WindowsNotifier()
+    with pytest.raises(NotifierUnavailable):
+        notifier.notifier("Title", "Message")
 
-    def fake_runner(*args, **kwargs):  # noqa: ANN002, ANN003
-        del args, kwargs
-        return subprocess.CompletedProcess(args=["powershell"], returncode=0, stdout="", stderr="")
 
+def test_windows_notifier_uses_powershell(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[list[str]] = []
+
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(args)
+        return _completed(returncode=0)
+
+    monkeypatch.setattr("agentnotifier.notifier.windows.platform.system", lambda: "Windows")
     notifier = WindowsNotifier(runner=fake_runner)
-    notifier.notify("Title", "Message")
+    notifier.notifier("Title", "Message")
+    assert calls
+    assert calls[0][0] == "powershell"
 
 
-def test_windows_notifier_falls_back_to_win10toast(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agentnotify.notify.windows.platform.system", lambda: "Windows")
-
-    def fake_runner(*args, **kwargs):  # noqa: ANN002, ANN003
+def test_windows_notifier_uses_win10toast_fallback(monkeypatch) -> None:  # noqa: ANN001
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         del args, kwargs
-        return subprocess.CompletedProcess(args=["powershell"], returncode=2, stdout="", stderr="")
+        return _completed(returncode=2)
 
-    class _ToastModule:
-        class ToastNotifier:  # noqa: D106
-            def show_toast(self, title, message, duration=5, threaded=False):  # noqa: ANN001, ANN201
-                del title, message, duration, threaded
-                return True
-
-    monkeypatch.setattr(
-        "agentnotify.notify.windows.importlib.import_module",
-        lambda name: _ToastModule() if name == "win10toast" else None,
+    fake_module = SimpleNamespace(
+        ToastNotifier=lambda: SimpleNamespace(show_toast=lambda *args, **kwargs: None)
     )
 
+    monkeypatch.setattr("agentnotifier.notifier.windows.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "agentnotifier.notifier.windows.importlib.import_module",
+        lambda _: fake_module,
+    )
     notifier = WindowsNotifier(runner=fake_runner)
-    notifier.notify("Title", "Message")
+    notifier.notifier("Title", "Message")
 
 
-def test_windows_notifier_raises_when_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agentnotify.notify.windows.platform.system", lambda: "Windows")
+def test_linux_notifier_uses_notify_send(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[list[str]] = []
 
-    def fake_runner(*args, **kwargs):  # noqa: ANN002, ANN003
-        del args, kwargs
-        return subprocess.CompletedProcess(args=["powershell"], returncode=2, stdout="", stderr="")
+    def fake_runner(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(args)
+        return _completed(returncode=0)
 
-    def fake_import(name: str) -> SimpleNamespace:
-        del name
-        raise ImportError("not installed")
+    monkeypatch.setattr("agentnotifier.notifier.linux.platform.system", lambda: "Linux")
+    monkeypatch.setattr(
+        "agentnotifier.notifier.linux.shutil.which",
+        lambda name: "/usr/bin/notify-send" if name == "notify-send" else None,
+    )
+    notifier = LinuxNotifier(runner=fake_runner)
+    notifier.notifier("Title", "Message", NotificationLevel.FAILURE)
 
-    monkeypatch.setattr("agentnotify.notify.windows.importlib.import_module", fake_import)
+    assert calls == [[
+        "/usr/bin/notify-send",
+        "--app-name=agent-notifier",
+        "--urgency=critical",
+        "--expire-time=5000",
+        "Title",
+        "Message",
+    ]]
 
-    notifier = WindowsNotifier(runner=fake_runner)
+
+def test_linux_notifier_requires_linux(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("agentnotifier.notifier.linux.platform.system", lambda: "Darwin")
+    notifier = LinuxNotifier()
     with pytest.raises(NotifierUnavailable):
-        notifier.notify("Title", "Message")
+        notifier.notifier("Title", "Message")
 
 
-def test_composite_notifier_delivers_when_one_backend_fails() -> None:
-    class _FailingNotifier(Notifier):
-        def notify(self, title, message, level=NotificationLevel.INFO, metadata=None):  # noqa: ANN001, ANN201
+def test_linux_notifier_requires_notify_send(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("agentnotifier.notifier.linux.platform.system", lambda: "Linux")
+    monkeypatch.setattr("agentnotifier.notifier.linux.shutil.which", lambda _: None)
+    notifier = LinuxNotifier()
+    with pytest.raises(NotifierUnavailable):
+        notifier.notifier("Title", "Message")
+
+
+def test_composite_notifier_raises_when_all_children_fail() -> None:
+    class FailingNotifier(Notifier):
+        def notifier(  # type: ignore[override]
+            self,
+            title: str,
+            message: str,
+            level: NotificationLevel = NotificationLevel.INFO,
+            metadata: dict[str, object] | None = None,
+        ) -> None:
             del title, message, level, metadata
-            raise RuntimeError("desktop unavailable")
+            raise NotificationError("no backend")
 
-    capture = NullNotifier()
-    composite = CompositeNotifier([_FailingNotifier(), capture])
-    composite.notify("Title", "Message")
-
-    assert len(capture.notifications) == 1
-    assert capture.notifications[0].title == "Title"
+    notifier = CompositeNotifier([FailingNotifier(), FailingNotifier()])
+    with pytest.raises(NotificationError):
+        notifier.notifier("Title", "Message")

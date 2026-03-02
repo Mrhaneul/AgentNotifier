@@ -8,7 +8,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
-from agentnotify.core.result import WatchResult
+from agentnotifier.core.result import WatchResult
 
 
 def pid_exists(pid: int) -> bool:

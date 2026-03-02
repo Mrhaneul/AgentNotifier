@@ -1,4 +1,4 @@
-from agentnotify.core.output import OutputRingBuffer
+from agentnotifier.core.output import OutputRingBuffer
 
 
 def test_output_ring_buffer_tail() -> None:

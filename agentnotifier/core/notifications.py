@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from agentnotify.core.result import RunResult, WatchResult
-from agentnotify.core.timefmt import format_duration
-from agentnotify.notify.base import NotificationLevel, Notifier
+from agentnotifier.core.result import RunResult, WatchResult
+from agentnotifier.core.timefmt import format_duration
+from agentnotifier.notifier.base import NotificationLevel, Notifier
 
 MAX_TITLE_LENGTH = 120
 MAX_BODY_LENGTH = 700
@@ -57,7 +57,7 @@ def build_body(
     return _truncate("\n".join(lines), MAX_BODY_LENGTH)
 
 
-def notify_run_completion(
+def notifier_run_completion(
     notifier: Notifier,
     result: RunResult,
     *,
@@ -77,7 +77,7 @@ def notify_run_completion(
         output_tail=result.output_tail,
     )
     level = NotificationLevel.SUCCESS if result.exit_code == 0 else NotificationLevel.FAILURE
-    notifier.notify(
+    notifier.notifier(
         title=title,
         message=body,
         level=level,
@@ -90,7 +90,7 @@ def notify_run_completion(
     return title, body, level
 
 
-def notify_watch_completion(
+def notifier_watch_completion(
     notifier: Notifier,
     result: WatchResult,
     *,
@@ -113,7 +113,7 @@ def notify_watch_completion(
     if result.exit_code is not None:
         level = NotificationLevel.SUCCESS if result.exit_code == 0 else NotificationLevel.FAILURE
 
-    notifier.notify(
+    notifier.notifier(
         title=title,
         message=body,
         level=level,

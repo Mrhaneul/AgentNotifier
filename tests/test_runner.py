@@ -1,7 +1,7 @@
 import sys
 
-from agentnotify.core.runner import ProcessRunner
-from agentnotify.core.timefmt import format_duration
+from agentnotifier.core.runner import ProcessRunner
+from agentnotifier.core.timefmt import format_duration
 
 
 def test_process_runner_success() -> None:

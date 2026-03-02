@@ -8,8 +8,8 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from agentnotify.core.output import OutputRingBuffer
-from agentnotify.core.result import RunResult
+from agentnotifier.core.output import OutputRingBuffer
+from agentnotifier.core.result import RunResult
 
 
 class ProcessRunner:

@@ -1,4 +1,4 @@
-"""agentnotify package."""
+"""agentnotifier package."""
 
 __all__ = ["__version__"]
 

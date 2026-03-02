@@ -4,7 +4,7 @@ Date: 2026-02-20
 
 ## Purpose
 
-Build and maintain `agent-notify`, an open-source, cross-platform CLI utility that notifies users when long-running agentic workflows complete.
+Build and maintain `agent-notifier`, an open-source, cross-platform CLI utility that notifies users when long-running agentic workflows complete.
 
 Primary targets:
 
@@ -17,7 +17,7 @@ Primary targets:
 ## Product Goals
 
 - Reliable completion notifications for wrapped and watched processes
-- Strong cross-platform behavior (macOS, Windows; Linux-extensible architecture)
+- Strong cross-platform behavior (macOS, Windows, Linux)
 - Secure command execution model (argument lists, no shell-string injection path by default)
 - Clear documentation and contributor onboarding
 - Proven correctness with automated tests and CI
@@ -28,8 +28,8 @@ As of 2026-02-20, this repository is in **alpha hardening / open-source release-
 
 - Package version: `0.1.1`
 - Classifier: `Development Status :: 3 - Alpha`
-- Core features implemented: `run`, `watch`, `test-notify`, optional `tail`
-- CI workflow present for macOS + Windows
+- Core features implemented: `run`, `watch`, `test-notifier`, optional `tail`
+- CI workflow present for macOS + Windows (Linux CI pending)
 
 ## Scope Boundary
 
@@ -43,7 +43,6 @@ In scope:
 
 Out of scope (current release):
 
-- Full Linux desktop notifier implementation
 - System tray support
 - Advanced anti-spam/cooldown policies
 - Rich remote channels (webhook/Slack) as production-default
@@ -70,5 +69,5 @@ When product direction changes, update:
 ## Near-Term Priorities
 
 1. Stabilize local test/developer setup parity with CI.
-2. Add Linux notifier plugin design notes and interface contract.
+2. Harden Linux desktop notifier behavior in real desktop and headless sessions.
 3. Prioritize one roadmap feature for next minor release (`0.2.x`).

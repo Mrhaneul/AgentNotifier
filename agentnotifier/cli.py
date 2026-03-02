@@ -1,4 +1,4 @@
-"""Click command-line interface for agent-notify."""
+"""Click command-line interface for agent-notifier."""
 
 from __future__ import annotations
 
@@ -9,30 +9,32 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import click
 
-from agentnotify.config.config import AppConfig, load_config
-from agentnotify.core.notifications import (
+from agentnotifier.config.config import AppConfig, load_config
+from agentnotifier.core.notifications import (
     build_title,
-    notify_run_completion,
-    notify_watch_completion,
+    notifier_run_completion,
+    notifier_watch_completion,
 )
-from agentnotify.core.procinfo import get_process_name
-from agentnotify.core.result import RunResult, WatchResult
-from agentnotify.core.runner import ProcessRunner
-from agentnotify.core.watcher import ProcessWatcher
-from agentnotify.notify.base import (
-    CompositeNotifier,
+from agentnotifier.core.procinfo import get_process_name
+from agentnotifier.core.result import RunResult, WatchResult
+from agentnotifier.core.runner import ProcessRunner
+from agentnotifier.core.watcher import ProcessWatcher
+from agentnotifier.notifier.base import (
     NotificationLevel,
     Notifier,
     NotifierUnavailable,
 )
-from agentnotify.notify.console import ConsoleNotifier
-from agentnotify.notify.macos import MacOSNotifier
-from agentnotify.notify.windows import WindowsNotifier
+from agentnotifier.notifier.console import ConsoleNotifier
+from agentnotifier.notifier.linux import LinuxNotifier
+from agentnotifier.notifier.macos import MacOSNotifier
+from agentnotifier.notifier.windows import WindowsNotifier
 
 CHANNEL_CHOICES = ["desktop", "console", "both"]
 CHIME_CHOICES = ["none", "bell", "ping"]
@@ -49,7 +51,36 @@ TERMINAL_APP_NAMES = {
 }
 
 
-@click.group(help="Notify when long-running agentic commands complete.")
+class _DesktopConsoleNotifier(Notifier):
+    """Deliver console output even if desktop delivery fails."""
+
+    def __init__(self, desktop: Notifier, console: Notifier, *, verbose: bool) -> None:
+        self._desktop = desktop
+        self._console = console
+        self._verbose = verbose
+
+    def notifier(
+        self,
+        title: str,
+        message: str,
+        level: NotificationLevel = NotificationLevel.INFO,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        desktop_error: Exception | None = None
+        try:
+            self._desktop.notifier(title=title, message=message, level=level, metadata=metadata)
+        except Exception as exc:  # pragma: no cover - defensive integration path
+            desktop_error = exc
+
+        self._console.notifier(title=title, message=message, level=level, metadata=metadata)
+        if desktop_error is not None and self._verbose:
+            _warn(
+                "Desktop notification failed while console delivery succeeded: "
+                f"{desktop_error}"
+            )
+
+
+@click.group(help="Notifier when long-running agentic commands complete.")
 def app() -> None:
     """Root CLI group."""
 
@@ -152,7 +183,18 @@ def _extract_payload_text(payload: dict[str, object], keys: tuple[str, ...], lim
 
 
 def _extract_payload_event(payload: dict[str, object]) -> str:
-    return _extract_payload_text(payload, ("hook_event_name", "event", "type"), 80)
+    return _extract_payload_text(
+        payload,
+        (
+            "hook_event_name",
+            "hookEventName",
+            "event_name",
+            "eventName",
+            "event",
+            "type",
+        ),
+        80,
+    )
 
 
 def _normalize_event_name(name: str) -> str:
@@ -164,7 +206,7 @@ def _extract_codex_event(payload: dict[str, object]) -> str:
     if explicit_event:
         return explicit_event
 
-    # Codex legacy notify payload may omit an explicit event field.
+    # Codex legacy notifier payload may omit an explicit event field.
     legacy_keys = ("thread-id", "turn-id", "input-messages", "last-assistant-message")
     if any(key in payload for key in legacy_keys):
         return "after_agent"
@@ -313,6 +355,8 @@ def _build_desktop_notifier() -> Notifier:
         return MacOSNotifier()
     if system == "Windows":
         return WindowsNotifier()
+    if system == "Linux":
+        return LinuxNotifier()
     raise NotifierUnavailable(f"Desktop notifications are not implemented for {system}")
 
 
@@ -321,13 +365,14 @@ def _resolve_notifier(channel: str, verbose: bool) -> Notifier:
         return ConsoleNotifier()
 
     if channel == "both":
-        notifiers: list[Notifier] = [ConsoleNotifier()]
+        console = ConsoleNotifier()
         try:
-            notifiers.insert(0, _build_desktop_notifier())
+            desktop = _build_desktop_notifier()
         except NotifierUnavailable as exc:
             if verbose:
                 _warn(f"Desktop notifier unavailable: {exc}. Falling back to console only.")
-        return CompositeNotifier(notifiers)
+            return console
+        return _DesktopConsoleNotifier(desktop=desktop, console=console, verbose=verbose)
 
     try:
         return _build_desktop_notifier()
@@ -378,7 +423,7 @@ def _infer_tool_name_from_pid(pid: int) -> str | None:
     return None
 
 
-def _notify_run_with_fallback(
+def _notifier_run_with_fallback(
     *,
     notifier: Notifier,
     result: RunResult,
@@ -388,7 +433,7 @@ def _notify_run_with_fallback(
     verbose: bool,
 ) -> None:
     try:
-        notify_run_completion(
+        notifier_run_completion(
             notifier,
             result,
             tool_name=tool_name,
@@ -399,7 +444,7 @@ def _notify_run_with_fallback(
         _warn(f"Desktop notification failed: {exc}. Falling back to console output.")
         if verbose:
             _warn("Use --channel console to avoid desktop notifier errors in headless sessions.")
-        notify_run_completion(
+        notifier_run_completion(
             ConsoleNotifier(),
             result,
             tool_name=tool_name,
@@ -408,7 +453,7 @@ def _notify_run_with_fallback(
         )
 
 
-def _notify_watch_with_fallback(
+def _notifier_watch_with_fallback(
     *,
     notifier: Notifier,
     result: WatchResult,
@@ -418,7 +463,7 @@ def _notify_watch_with_fallback(
     verbose: bool,
 ) -> None:
     try:
-        notify_watch_completion(
+        notifier_watch_completion(
             notifier,
             result,
             tool_name=tool_name,
@@ -429,7 +474,7 @@ def _notify_watch_with_fallback(
         _warn(f"Desktop notification failed: {exc}. Falling back to console output.")
         if verbose:
             _warn("Use --channel console to avoid desktop notifier errors in headless sessions.")
-        notify_watch_completion(
+        notifier_watch_completion(
             ConsoleNotifier(),
             result,
             tool_name=tool_name,
@@ -470,7 +515,7 @@ def run_command(
     command: tuple[str, ...],
 ) -> None:
     if not command:
-        raise click.UsageError("Missing command. Usage: agent-notify run -- <cmd...>")
+        raise click.UsageError("Missing command. Usage: agent-notifier run -- <cmd...>")
 
     config = load_config()
     selected_channel = channel or _default_channel(config)
@@ -494,7 +539,7 @@ def run_command(
         click.secho(f"Failed to run command: {exc}", fg="red", err=True)
         raise SystemExit(1) from exc
 
-    _notify_run_with_fallback(
+    _notifier_run_with_fallback(
         notifier=notifier,
         result=result,
         tool_name=effective_name,
@@ -557,7 +602,7 @@ def emit_command(
         tool_name=effective_name,
     )
 
-    _notify_run_with_fallback(
+    _notifier_run_with_fallback(
         notifier=notifier,
         result=result,
         tool_name=effective_name,
@@ -567,7 +612,7 @@ def emit_command(
     )
 
 
-def _notify_task_hook(
+def _notifier_task_hook(
     *,
     name: str,
     title: str | None,
@@ -579,6 +624,8 @@ def _notify_task_hook(
     metadata: dict[str, object],
 ) -> None:
     if quiet_when_focused and _is_user_focused_on_terminal(verbose=verbose):
+        if verbose:
+            _warn("Skipping notification because your terminal is frontmost.")
         return
 
     config = load_config()
@@ -598,7 +645,7 @@ def _notify_task_hook(
     body_text = "\n".join(rendered_lines)
 
     try:
-        notifier.notify(
+        notifier.notifier(
             title=title_text,
             message=body_text,
             level=NotificationLevel.SUCCESS,
@@ -608,7 +655,7 @@ def _notify_task_hook(
         _warn(f"Desktop notification failed: {exc}. Falling back to console output.")
         if verbose:
             _warn("Use --channel console to avoid desktop notifier errors in headless sessions.")
-        ConsoleNotifier().notify(
+        ConsoleNotifier().notifier(
             title=title_text,
             message=body_text,
             level=NotificationLevel.SUCCESS,
@@ -664,7 +711,7 @@ def _payload_event_matches(hook_event: str, target_event: str) -> bool:
     help="Maximum response length to include in the notification body.",
 )
 @click.option(
-    "--quiet-when-focused/--notify-when-focused",
+    "--quiet-when-focused/--notifier-when-focused",
     default=False,
     show_default=True,
     help="Skip notifications when your terminal app is frontmost (macOS).",
@@ -700,9 +747,25 @@ def gemini_hook_command(
     if not _payload_event_matches(hook_event, target_event):
         return
 
-    prompt = _extract_payload_text(payload, ("prompt",), max_prompt_chars)
-    response = _extract_payload_text(payload, ("prompt_response",), max_response_chars)
-    session_id = _extract_payload_text(payload, ("session_id",), 64)
+    prompt = _extract_payload_text(
+        payload,
+        (
+            "prompt",
+            "user_prompt",
+            "userPrompt",
+        ),
+        max_prompt_chars,
+    )
+    response = _extract_payload_text(
+        payload,
+        (
+            "prompt_response",
+            "promptResponse",
+            "response",
+        ),
+        max_response_chars,
+    )
+    session_id = _extract_payload_text(payload, ("session_id", "sessionId"), 64)
 
     body_lines: list[str] = [f"Event: {hook_event}"]
     if prompt:
@@ -712,7 +775,7 @@ def gemini_hook_command(
     if session_id:
         body_lines.append(f"Session: {session_id}")
 
-    _notify_task_hook(
+    _notifier_task_hook(
         name=name,
         title=title,
         channel=channel,
@@ -768,7 +831,7 @@ def gemini_hook_command(
     help="Maximum tool/result text length to include in the notification body.",
 )
 @click.option(
-    "--quiet-when-focused/--notify-when-focused",
+    "--quiet-when-focused/--notifier-when-focused",
     default=False,
     show_default=True,
     help="Skip notifications when your terminal app is frontmost (macOS).",
@@ -822,7 +885,7 @@ def claude_hook_command(
     if session_id:
         body_lines.append(f"Session: {session_id}")
 
-    _notify_task_hook(
+    _notifier_task_hook(
         name=name,
         title=title,
         channel=channel,
@@ -840,7 +903,7 @@ def claude_hook_command(
     )
 
 
-@app.command("codex-hook", help="Send notification from Codex notify hook payloads (task-level).")
+@app.command("codex-hook", help="Send notification from Codex notifier hook payloads (task-level).")
 @click.option(
     "--event",
     "target_event",
@@ -872,7 +935,7 @@ def claude_hook_command(
     help="Maximum assistant message length in the notification body.",
 )
 @click.option(
-    "--quiet-when-focused/--notify-when-focused",
+    "--quiet-when-focused/--notifier-when-focused",
     default=False,
     show_default=True,
     help="Skip notifications when your terminal app is frontmost (macOS).",
@@ -937,7 +1000,7 @@ def codex_hook_command(
     if turn_id:
         body_lines.append(f"Turn: {turn_id}")
 
-    _notify_task_hook(
+    _notifier_task_hook(
         name=name,
         title=title,
         channel=channel,
@@ -974,7 +1037,7 @@ def codex_hook_command(
     help="Maximum response text length in the notification body.",
 )
 @click.option(
-    "--quiet-when-focused/--notify-when-focused",
+    "--quiet-when-focused/--notifier-when-focused",
     default=False,
     show_default=True,
     help="Skip notifications when your terminal app is frontmost (macOS).",
@@ -1021,7 +1084,7 @@ def ollama_hook_command(
     if done_reason:
         body_lines.append(f"Reason: {done_reason}")
 
-    _notify_task_hook(
+    _notifier_task_hook(
         name=name,
         title=title,
         channel=channel,
@@ -1071,7 +1134,7 @@ def watch_command(
     watcher = ProcessWatcher(poll_interval=poll_interval or config.poll_interval)
     result = watcher.wait_for_exit(pid)
 
-    _notify_watch_with_fallback(
+    _notifier_watch_with_fallback(
         notifier=notifier,
         result=result,
         tool_name=effective_name,
@@ -1085,7 +1148,7 @@ def watch_command(
     raise SystemExit(0)
 
 
-@app.command("test-notify", help="Send a sample notification.")
+@app.command("test-notifier", help="Send a sample notification.")
 @click.option(
     "--channel",
     type=click.Choice(CHANNEL_CHOICES, case_sensitive=False),
@@ -1093,22 +1156,22 @@ def watch_command(
     help="Notification channel: desktop, console, or both.",
 )
 @click.option("--verbose", is_flag=True, help="Enable verbose logs.")
-def test_notify_command(channel: str | None, verbose: bool) -> None:
+def test_notifier_command(channel: str | None, verbose: bool) -> None:
     config = load_config()
     selected_channel = channel or _default_channel(config)
     notifier = _resolve_notifier(selected_channel, verbose=verbose)
 
     title_text = f"[{config.title_prefix}] Test Notification"
-    body_text = "agent-notify is installed and can send notifications."
+    body_text = "agent-notifier is installed and can send notifications."
 
     try:
-        notifier.notify(title=title_text, message=body_text)
+        notifier.notifier(title=title_text, message=body_text)
     except Exception as exc:
         _warn(f"Desktop notification failed: {exc}. Falling back to console output.")
-        ConsoleNotifier().notify(title=title_text, message=body_text)
+        ConsoleNotifier().notifier(title=title_text, message=body_text)
 
 
-@app.command("tail", help="Watch a log file and notify when a pattern appears.")
+@app.command("tail", help="Watch a log file and notifier when a pattern appears.")
 @click.option(
     "--file",
     "file_path",
@@ -1157,15 +1220,15 @@ def tail_command(
                 title_text = title or f"[{name or config.title_prefix}] Done"
                 body_text = f"Pattern '{pattern}' detected in {duration:.2f}s\nFile: {file_path}"
                 try:
-                    notifier.notify(title=title_text, message=body_text)
+                    notifier.notifier(title=title_text, message=body_text)
                 except Exception as exc:
                     _warn(f"Desktop notification failed: {exc}. Falling back to console output.")
-                    ConsoleNotifier().notify(title=title_text, message=body_text)
+                    ConsoleNotifier().notifier(title=title_text, message=body_text)
                 return
 
 
 def main() -> None:
-    app(prog_name="agent-notify")
+    app(prog_name="agent-notifier")
 
 
 if __name__ == "__main__":

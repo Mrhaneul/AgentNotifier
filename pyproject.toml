@@ -3,14 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-notify"
-version = "0.1.1"
+name = "agent-notifier"
+version = "0.1.2"
 description = "Cross-platform notifications for long-running agentic CLI tools"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-  { name = "agent-notify contributors" }
+  { name = "agent-notifier contributors" }
 ]
 keywords = ["cli", "notification", "agents", "codex", "developer-tools"]
 classifiers = [
@@ -42,16 +42,19 @@ windows = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Kipung/AgentNotify"
-Repository = "https://github.com/Kipung/AgentNotify"
-Issues = "https://github.com/Kipung/AgentNotify/issues"
+Homepage = "https://github.com/Kipung/AgentNotifier"
+Repository = "https://github.com/Kipung/AgentNotifier"
+Issues = "https://github.com/Kipung/AgentNotifier/issues"
 
 [project.scripts]
-agent-notify = "agentnotify.cli:main"
+agent-notifier = "agentnotifier.cli:main"
+agent-notifier-codex-hook = "agentnotifier.bridges:codex_hook_main"
+agent-notifier-gemini-hook = "agentnotifier.bridges:gemini_hook_main"
+agent-notifier-claude-hook = "agentnotifier.bridges:claude_hook_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agentnotify*"]
+include = ["agentnotifier*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

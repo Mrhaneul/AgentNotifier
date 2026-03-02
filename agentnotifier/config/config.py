@@ -11,7 +11,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     import tomli as tomllib
 
-DEFAULT_CONFIG_PATH = Path.home() / ".agentnotify" / "config.toml"
+DEFAULT_CONFIG_PATH = Path.home() / ".agentnotifier" / "config.toml"
 
 
 @dataclass(slots=True)
@@ -57,14 +57,31 @@ def load_config(path: Path | None = None) -> AppConfig:
     tail_lines = int(file_config.get("tail_lines", 20))
     poll_interval = float(file_config.get("poll_interval", 1.0))
 
-    if "AGENT_NOTIFY_TITLE_PREFIX" in os.environ:
-        title_prefix = os.environ["AGENT_NOTIFY_TITLE_PREFIX"]
-    if "AGENT_NOTIFY_CHANNELS" in os.environ:
-        channels = _parse_channels(os.environ["AGENT_NOTIFY_CHANNELS"])
-    if "AGENT_NOTIFY_TAIL_LINES" in os.environ:
-        tail_lines = int(os.environ["AGENT_NOTIFY_TAIL_LINES"])
-    if "AGENT_NOTIFY_POLL_INTERVAL" in os.environ:
-        poll_interval = float(os.environ["AGENT_NOTIFY_POLL_INTERVAL"])
+    title_prefix_env = _read_env_with_legacy(
+        primary_key="AGENT_NOTIFIER_TITLE_PREFIX",
+        legacy_key="AGENT_NOTIFY_TITLE_PREFIX",
+    )
+    channels_env = _read_env_with_legacy(
+        primary_key="AGENT_NOTIFIER_CHANNELS",
+        legacy_key="AGENT_NOTIFY_CHANNELS",
+    )
+    tail_lines_env = _read_env_with_legacy(
+        primary_key="AGENT_NOTIFIER_TAIL_LINES",
+        legacy_key="AGENT_NOTIFY_TAIL_LINES",
+    )
+    poll_interval_env = _read_env_with_legacy(
+        primary_key="AGENT_NOTIFIER_POLL_INTERVAL",
+        legacy_key="AGENT_NOTIFY_POLL_INTERVAL",
+    )
+
+    if title_prefix_env is not None:
+        title_prefix = title_prefix_env
+    if channels_env is not None:
+        channels = _parse_channels(channels_env)
+    if tail_lines_env is not None:
+        tail_lines = int(tail_lines_env)
+    if poll_interval_env is not None:
+        poll_interval = float(poll_interval_env)
 
     return AppConfig(
         title_prefix=title_prefix,
@@ -72,3 +89,10 @@ def load_config(path: Path | None = None) -> AppConfig:
         tail_lines=tail_lines,
         poll_interval=poll_interval,
     )
+
+
+def _read_env_with_legacy(*, primary_key: str, legacy_key: str) -> str | None:
+    value = os.getenv(primary_key)
+    if value is not None:
+        return value
+    return os.getenv(legacy_key)

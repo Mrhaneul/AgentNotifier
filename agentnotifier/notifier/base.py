@@ -26,7 +26,7 @@ class Notifier(ABC):
     """Interface for all notification channels."""
 
     @abstractmethod
-    def notify(
+    def notifier(
         self,
         title: str,
         message: str,
@@ -42,7 +42,7 @@ class CompositeNotifier(Notifier):
     def __init__(self, notifiers: Iterable[Notifier]):
         self._notifiers = list(notifiers)
 
-    def notify(
+    def notifier(
         self,
         title: str,
         message: str,
@@ -53,7 +53,7 @@ class CompositeNotifier(Notifier):
         delivered = False
         for notifier in self._notifiers:
             try:
-                notifier.notify(title=title, message=message, level=level, metadata=metadata)
+                notifier.notifier(title=title, message=message, level=level, metadata=metadata)
             except Exception as exc:
                 errors.append(exc)
             else:

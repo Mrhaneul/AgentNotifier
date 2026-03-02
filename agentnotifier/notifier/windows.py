@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from agentnotify.notify.base import (
+from agentnotifier.notifier.base import (
     NotificationError,
     NotificationLevel,
     Notifier,
@@ -24,7 +24,7 @@ class WindowsNotifier(Notifier):
     def __init__(self, runner: RunCallable = subprocess.run) -> None:
         self._runner = runner
 
-    def notify(
+    def notifier(
         self,
         title: str,
         message: str,
@@ -35,9 +35,9 @@ class WindowsNotifier(Notifier):
         if platform.system() != "Windows":
             raise NotifierUnavailable("Windows notifier is only available on Windows")
 
-        if self._notify_with_powershell(title, message):
+        if self._notifier_with_powershell(title, message):
             return
-        if self._notify_with_win10toast(title, message):
+        if self._notifier_with_win10toast(title, message):
             return
 
         raise NotifierUnavailable(
@@ -45,7 +45,7 @@ class WindowsNotifier(Notifier):
             "Install BurntToast PowerShell module or win10toast Python package."
         )
 
-    def _notify_with_powershell(self, title: str, message: str) -> bool:
+    def _notifier_with_powershell(self, title: str, message: str) -> bool:
         ps_title = _escape_powershell_single_quoted(title)
         ps_message = _escape_powershell_single_quoted(message)
 
@@ -89,7 +89,7 @@ class WindowsNotifier(Notifier):
         )
 
     @staticmethod
-    def _notify_with_win10toast(title: str, message: str) -> bool:
+    def _notifier_with_win10toast(title: str, message: str) -> bool:
         try:
             module = importlib.import_module("win10toast")
         except ImportError:

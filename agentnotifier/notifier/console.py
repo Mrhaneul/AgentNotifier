@@ -6,7 +6,7 @@ import sys
 from collections.abc import Mapping
 from typing import Any, TextIO
 
-from agentnotify.notify.base import NotificationLevel, Notifier
+from agentnotifier.notifier.base import NotificationLevel, Notifier
 
 
 class ConsoleNotifier(Notifier):
@@ -15,7 +15,7 @@ class ConsoleNotifier(Notifier):
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream or sys.stderr
 
-    def notify(
+    def notifier(
         self,
         title: str,
         message: str,
@@ -23,5 +23,5 @@ class ConsoleNotifier(Notifier):
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
         del metadata
-        print(f"[agent-notify:{level.value}] {title}", file=self._stream)
+        print(f"[agent-notifier:{level.value}] {title}", file=self._stream)
         print(message, file=self._stream)

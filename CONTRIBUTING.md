@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `agent-notify`.
+Thanks for contributing to `agent-notifier`.
 
 ## Setup
 
