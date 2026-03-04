@@ -4,8 +4,15 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+venv/
 .release-venv/
+.env
+.env.*
+.python-version
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
 .mypy_cache/
 .coverage
 coverage.xml
