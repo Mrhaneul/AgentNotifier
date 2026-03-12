@@ -120,11 +120,21 @@ def _upsert_codex_notify_config(*, existing_text: str, notify_line: str) -> str:
         if pattern.search(updated):
             return pattern.sub(notify_line, updated, count=1)
 
-    if updated.strip():
-        if not updated.endswith("\n"):
-            updated += "\n"
-        updated += "\n"
-    return f"{updated}{notify_line}"
+    lines = updated.splitlines(keepends=True)
+    insert_at = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            insert_at = index
+            break
+
+    prefix = "".join(lines[:insert_at])
+    suffix = "".join(lines[insert_at:])
+    if prefix and not prefix.endswith("\n"):
+        prefix += "\n"
+    if prefix and not prefix.endswith("\n\n"):
+        prefix += "\n"
+    return f"{prefix}{notify_line}{suffix}"
 
 
 def _escape_powershell_single_quoted(value: str) -> str:

@@ -508,6 +508,47 @@ def test_setup_codex_command_on_windows_writes_valid_toml(tmp_path: Path, monkey
     assert parsed["notify"][-1].endswith("agent-notifier-codex-wrapper.ps1")
 
 
+def test_setup_codex_command_inserts_notify_before_existing_tables(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    runner = CliRunner()
+    monkeypatch.setattr("agentnotifier.cli.platform.system", lambda: "Windows")
+
+    hook_path = tmp_path / "bin" / "agent-notifier-codex-hook.exe"
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text("", encoding="utf-8")
+
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        (
+            'model = "gpt-5.4"\n\n'
+            "[projects.'C:\\\\Users\\\\asael']\n"
+            'trust_level = "trusted"\n\n'
+            "[notice.model_migrations]\n"
+            '"gpt-5.3-codex" = "gpt-5.4"\n'
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "setup-codex",
+            "--codex-config",
+            str(config_path),
+            "--hook-path",
+            str(hook_path),
+            "--no-backup",
+        ],
+    )
+
+    assert result.exit_code == 0
+    text = config_path.read_text(encoding="utf-8")
+    assert 'model = "gpt-5.4"\nnotify = [' in text
+    parsed = tomllib.loads(text)
+    assert parsed["notify"][0] == "powershell.exe"
+    assert parsed["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
+
+
 def test_setup_codex_command_fails_for_missing_hook_path(tmp_path: Path) -> None:
     runner = CliRunner()
     config_path = tmp_path / ".codex" / "config.toml"
