@@ -6,6 +6,11 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib
+
 from agentnotifier import cli
 from agentnotifier.cli import app
 from agentnotifier.notifier.base import NotificationError, NotificationLevel, Notifier
@@ -474,6 +479,33 @@ def test_setup_codex_command_on_windows_writes_wrapper_notify_command(tmp_path: 
     wrapper_text = wrapper_path.read_text(encoding="utf-8")
     assert str(hook_path.resolve()) in wrapper_text
     assert "Wrapper path:" in result.output
+
+
+def test_setup_codex_command_on_windows_writes_valid_toml(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    runner = CliRunner()
+    monkeypatch.setattr("agentnotifier.cli.platform.system", lambda: "Windows")
+
+    hook_path = tmp_path / "bin" / "agent-notifier-codex-hook.exe"
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text("", encoding="utf-8")
+
+    config_path = tmp_path / ".codex" / "config.toml"
+    result = runner.invoke(
+        app,
+        [
+            "setup-codex",
+            "--codex-config",
+            str(config_path),
+            "--hook-path",
+            str(hook_path),
+            "--no-backup",
+        ],
+    )
+
+    assert result.exit_code == 0
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed["notify"][0] == "powershell.exe"
+    assert parsed["notify"][-1].endswith("agent-notifier-codex-wrapper.ps1")
 
 
 def test_setup_codex_command_fails_for_missing_hook_path(tmp_path: Path) -> None:
